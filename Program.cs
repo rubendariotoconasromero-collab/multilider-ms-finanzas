@@ -14,20 +14,8 @@ builder.Services.AddExceptionHandler<ApiExceptionHandler>();
 builder.Services.AddControllers().AddJsonOptions(o => o.JsonSerializerOptions.PropertyNamingPolicy=JsonNamingPolicy.SnakeCaseLower);
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddDbContext<AppDbContext>(o => o.UseSqlServer(builder.Configuration.GetConnectionString("SqlServer")));
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(o => {
-    o.MapInboundClaims=false;
-    o.TokenValidationParameters=new TokenValidationParameters {
-        ValidateIssuer=true, ValidateAudience=true, ValidateLifetime=true, RequireExpirationTime=true,
-        ValidateIssuerSigningKey=true, RequireSignedTokens=true, ValidAlgorithms=[SecurityAlgorithms.HmacSha256],
-        ValidIssuer=builder.Configuration["Jwt:Issuer"],ValidAudience=builder.Configuration["Jwt:Audience"],
-        IssuerSigningKeyResolver=(_,_,_,_) => {
-            var key=builder.Configuration["Jwt:Key"];
-            return !string.IsNullOrWhiteSpace(key) && Encoding.UTF8.GetByteCount(key)>=32
-                ? [new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key))] : [];
-        },
-        ClockSkew=TimeSpan.FromSeconds(30),NameClaimType="sub"
-    };
-});
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(o=>Multilider.Identity.SessionValidation.Configure(o,builder.Configuration));
 builder.Services.AddAuthorization(o => {
     foreach (var permission in new[] { "acceso_clientes","acceso_asesores","acceso_ventas","acceso_historial_ventas",
         "acceso_contratos","acceso_entregas","acceso_pagos","acceso_ingresos","acceso_egresos" })
@@ -45,6 +33,10 @@ builder.Services.AddHttpClient<ComercialClient>((sp,c)=> {
     c.BaseAddress=new Uri(sp.GetRequiredService<IConfiguration>()["Services:Comercial"]!);
     c.Timeout=TimeSpan.FromSeconds(10);
 });
+builder.Services.AddHttpClient("identity-status",c=> {
+    c.BaseAddress=new Uri((builder.Configuration["Services:Seguridad"] ?? "http://localhost:5211").TrimEnd('/')+"/");
+    c.Timeout=TimeSpan.FromSeconds(5);
+}).ConfigurePrimaryHttpMessageHandler(()=>new SocketsHttpHandler {AllowAutoRedirect=false,ConnectTimeout=TimeSpan.FromSeconds(2)});
 var app=builder.Build();
 app.UseExceptionHandler();
 if(app.Environment.IsDevelopment()) { app.UseSwagger();app.UseSwaggerUI(); }

@@ -24,6 +24,10 @@ public sealed class ApiFactory:WebApplicationFactory<Program> {
     private readonly string storage=Path.Combine(Path.GetTempPath(),"multilider-test-"+Guid.NewGuid().ToString("N"));
     public HttpStatusCode RemoteStatus {get;set;}=HttpStatusCode.OK;
     public int RemoteCalls {get;private set;}
+    public HttpStatusCode IdentityStatus {get;set;}=HttpStatusCode.OK;
+    public int IdentityCalls {get;private set;}
+    public int IdentitySubject {get;set;}=1;
+    public string[]? AuthoritativePermissions {get;set;}
     protected override void ConfigureWebHost(IWebHostBuilder builder) {
         builder.UseEnvironment(Development ? "Development" : "Testing");
         builder.ConfigureAppConfiguration((_,c)=>c.AddInMemoryCollection(new Dictionary<string,string?> {
@@ -32,6 +36,7 @@ public sealed class ApiFactory:WebApplicationFactory<Program> {
         }));
         builder.ConfigureServices(services=>{
             connection.Open();
+            services.AddHttpClient("identity-status").ConfigurePrimaryHttpMessageHandler(()=>new IdentityHandler(this));
             services.RemoveAll<DbContextOptions<AppDbContext>>();
             services.RemoveAll<IDbContextOptionsConfiguration<AppDbContext>>();
             services.AddDbContext<AppDbContext>(o=>o.UseSqlite(connection));
@@ -48,10 +53,18 @@ public sealed class ApiFactory:WebApplicationFactory<Program> {
     public static readonly string[] AllPermissions=["acceso_clientes","acceso_asesores","acceso_ventas","acceso_historial_ventas",
         "acceso_contratos","acceso_entregas","acceso_pagos","acceso_ingresos","acceso_egresos"];
     public static string Token(string[] permissions,string issuer="tests",bool expired=false) {
-        var claims=permissions.Select(p=>new Claim("permission",p)).Append(new Claim("sub","1"));
+        var claims=permissions.Select(p=>new Claim("permission",p)).Concat(new[] {new Claim("sub","1"),new Claim("jti",Guid.NewGuid().ToString()),
+            new Claim("ver","0",ClaimValueTypes.Integer64),new Claim("iat",DateTimeOffset.UtcNow.AddMinutes(-5).ToUnixTimeSeconds().ToString(),ClaimValueTypes.Integer64)});
         return new JwtSecurityTokenHandler().WriteToken(new JwtSecurityToken(issuer,"tests",claims,
             DateTime.UtcNow.AddMinutes(-5),DateTime.UtcNow.AddMinutes(expired?-1:10),
             new SigningCredentials(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(TestKey)),SecurityAlgorithms.HmacSha256)));
+    }
+    private sealed class IdentityHandler(ApiFactory factory):HttpMessageHandler {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken ct) {
+            factory.IdentityCalls++;
+            return Task.FromResult(new HttpResponseMessage(factory.IdentityStatus){Content=JsonContent.Create(new {id=factory.IdentitySubject,estado=true,
+                rolesPermisos=(factory.AuthoritativePermissions ?? new JwtSecurityTokenHandler().ReadJwtToken(request.Headers.Authorization!.Parameter).Claims.Where(x=>x.Type=="permission").Select(x=>x.Value).ToArray()).Select(x=>new {nombrePermiso=x})})});
+        }
     }
     private sealed class Handler(ApiFactory factory):HttpMessageHandler {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken ct) {

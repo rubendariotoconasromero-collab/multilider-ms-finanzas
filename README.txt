@@ -158,3 +158,14 @@ deploy/ contiene plantillas de systemd y entorno; NO se han instalado en el VPS.
 No configurar actualizaciones automáticas de Git.
 Respaldar base SQL y, en Comercial, Storage:Path antes de una actualización.
 
+
+ACTUALIZACIÓN F3: ESTADO DE SESIONES
+El JWT válido también debe superar GET /api/auth/me de Seguridad con el token
+del usuario. Configura Services:Seguridad (variable Services__Seguridad); por
+defecto http://localhost:5211. Sin autoridad verificable devuelve 503; sesión
+revocada 401 y permiso vigente ausente 403. No hay caché positiva ni token admin.
+Jwt:Key/Issuer/Audience deben coincidir con Seguridad y usar clave privada fuerte.
+La compatibilidad legacy sin versión está cerrada por defecto; habilitar solo
+ventana UTC explícita y breve Identity:LegacyUntil para un corte planificado.
+No se alteran cálculos ni se integra aún el flujo distribuido de ventas/pagos.
+Operación y recuperación: ../multilider-docs/operacion/IDENTIDAD_F3.txt.
