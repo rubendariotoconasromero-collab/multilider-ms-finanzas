@@ -1,0 +1,58 @@
+@host = http://localhost:5214
+@token = PEGAR_JWT_EMITIDO_POR_SEGURIDAD
+@ventaId = 1
+@planId = 1
+@cuotaId = 1
+
+### Liveness (sin token)
+GET {{host}}/health
+
+### Crear método de pago
+POST {{host}}/api/metodos-pago
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"nombre":"Efectivo"}
+
+### Crear cuenta propia de Finanzas
+POST {{host}}/api/cuentas-bancarias
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"nombre":"Caja BOB","banco":"Caja local","numero_cuenta":"DEV-001","titular":"Empresa","moneda":"BOB","saldo_inicial":0}
+
+### Traer venta real desde Comercial (requiere acceso_pagos + acceso_ventas)
+POST {{host}}/api/ventas/{{ventaId}}/registrar
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{}
+
+### Consultar cuotas e identificadores antes de pagar
+GET {{host}}/api/ventas/{{ventaId}}/plan-pago
+Authorization: Bearer {{token}}
+
+### Pago inicial: ajustar importe e IDs a la venta real
+POST {{host}}/api/pagos
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"solicitud_id":"22222222-2222-4222-8222-222222222222","nota_venta_id":{{ventaId}},"monto":100,
+ "metodo_pago_id":1,"cuenta_id":1,"fecha_pago":"2026-11-04"}
+
+### Pago de cuota completa: ajustar monto exacto según el plan
+POST {{host}}/api/pagos
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"solicitud_id":"33333333-3333-4333-8333-333333333333","nota_venta_id":{{ventaId}},"cuota_id":{{cuotaId}},
+ "monto":100,"metodo_pago_id":1,"cuenta_id":1,"fecha_pago":"2026-12-04"}
+
+### Resumen
+GET {{host}}/api/ventas/{{ventaId}}/resumen
+Authorization: Bearer {{token}}
+
+### Comisiones
+GET {{host}}/api/comisiones-asesores
+Authorization: Bearer {{token}}
+

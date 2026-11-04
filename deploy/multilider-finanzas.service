@@ -1,0 +1,24 @@
+[Unit]
+Description=Multilider Finanzas
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=multilider-finanzas
+Group=multilider-finanzas
+WorkingDirectory=/var/www/multilider-ms-finanzas/publish
+ExecStart=/usr/bin/dotnet /var/www/multilider-ms-finanzas/publish/MSMultilider.Finanzas.dll
+EnvironmentFile=/etc/multilider/finanzas.env
+Restart=on-failure
+RestartSec=5
+StateDirectory=multilider-finanzas
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/multilider-finanzas
+
+[Install]
+WantedBy=multi-user.target
+
