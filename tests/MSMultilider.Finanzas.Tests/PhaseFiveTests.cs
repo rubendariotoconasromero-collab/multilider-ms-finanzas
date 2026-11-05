@@ -20,12 +20,18 @@ public sealed class PhaseFiveTests {
     }
     private sealed class Provider:ILibelulaProvider {
         public int Registrations;public bool Paid;public bool LoseResponse;public Func<Task>? BeforeReturn;
+        public int VerificationTimeouts;
         public async Task<JsonElement> Register(object data,CancellationToken ct) {
             Registrations++;if(BeforeReturn is not null)await BeforeReturn();if(LoseResponse)throw new HttpRequestException("Fixture lost acknowledgement");
             return JsonSerializer.SerializeToElement(new{url_pasarela_pagos="https://fixture.example.test/pay",id_transaccion="provider-fixture"});
         }
         public Task<bool> Verify(string reference,string currency,decimal amount,DateTime created,CancellationToken ct) {
-            Assert.Equal("BOB",currency);Assert.Equal(.20m,amount);return Task.FromResult(Paid);
+            Assert.Equal("BOB",currency);Assert.Equal(.20m,amount);
+            if (VerificationTimeouts > 0) {
+                VerificationTimeouts--;
+                throw new TaskCanceledException("Fixture provider read timed out.", new TimeoutException());
+            }
+            return Task.FromResult(Paid);
         }
     }
     private static TestPaymentRequest Request(Guid id,int payment)=>new(id,10,[payment],[],"F5-CI","70000000","Cliente","F5","fixture@example.test");
@@ -65,6 +71,48 @@ public sealed class PhaseFiveTests {
         provider.BeforeReturn=async()=>{using var other=factory.Services.CreateScope();await other.ServiceProvider.GetRequiredService<PaymentTests>().Reconcile(null,default);};
         var order=await scope.ServiceProvider.GetRequiredService<PaymentTests>().Create(Request(Guid.NewGuid(),(await db.Pagos.SingleAsync()).Id),default);
         Assert.Equal("PagadaPrueba",order.State);Assert.NotNull(order.PaymentUrl);Assert.Equal(0,await db.Ingresos.CountAsync());
+    }
+
+    [Fact]
+    public async Task CallbackPersistenceFailureRequiresRetryAndTimeoutKeepsPaymentPending()
+    {
+        var provider = new Provider { Paid = true, VerificationTimeouts = 1 };
+        using var factory = new ApiFactory { PaymentProvider = provider };
+        using var client = factory.Client();
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await Prepare(db);
+        var initial = await db.Pagos.SingleAsync();
+        var service = scope.ServiceProvider.GetRequiredService<PaymentTests>();
+        var order = await service.Create(Request(Guid.NewGuid(), initial.Id), default);
+        var callback = new { identificador = order.Reference, transaction_id = "provider-fixture", error = "0" };
+        var lateCallback = new { identificador = order.Reference, transaction_id = "provider-fixture", error = "1", cancel_order = "1" };
+
+        await db.Database.ExecuteSqlRawAsync("""
+            CREATE TRIGGER fixture_reject_callback BEFORE INSERT ON PaymentTestInbox
+            BEGIN SELECT RAISE(ABORT, 'fixture inbox unavailable'); END
+            """);
+        try {
+            var failed = await client.PostAsJsonAsync("/api/public/pagos/callback", callback);
+            Assert.False(failed.IsSuccessStatusCode);
+            Assert.Empty(await db.Set<PaymentTestInbox>().ToListAsync());
+            Assert.Equal(1, provider.VerificationTimeouts);
+        } finally {
+            await db.Database.ExecuteSqlRawAsync("DROP TRIGGER fixture_reject_callback");
+        }
+
+        await (await client.PostAsJsonAsync("/api/public/pagos/callback", callback)).Json();
+        var pending = await db.Set<PaymentTestOrder>().AsNoTracking().SingleAsync();
+        Assert.Equal("Registrada", pending.State);
+        Assert.Equal("Pendiente", (await db.Set<PaymentTestInbox>().AsNoTracking().SingleAsync()).State);
+        await (await client.PostAsJsonAsync("/api/public/pagos/callback", callback)).Json();
+        await (await client.PostAsJsonAsync("/api/public/pagos/callback", lateCallback)).Json();
+        Assert.Equal("PagadaPrueba", (await db.Set<PaymentTestOrder>().AsNoTracking().SingleAsync()).State);
+        Assert.Equal(2, await db.Set<PaymentTestInbox>().CountAsync());
+        Assert.Equal("PENDIENTE_PAGO", (await db.Pagos.AsNoTracking().SingleAsync()).Estado);
+        Assert.Equal(100m, (await db.Pagos.AsNoTracking().SingleAsync()).Monto);
+        Assert.Empty(await db.Ingresos.ToListAsync());
+        Assert.Equal(1, provider.Registrations);
     }
     [Fact] public async Task PartialInstallmentReplayAndBatchKeepOneIncomePerReceipt() {
         using var factory=new ApiFactory();using var client=factory.Client(ApiFactory.AllPermissions);
