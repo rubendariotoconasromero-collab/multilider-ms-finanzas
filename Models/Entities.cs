@@ -29,6 +29,7 @@ public sealed class Cuota:Entity {
     public decimal MontoCuota {get;set;}
     public decimal MontoCapital {get;set;}
     public decimal MontoInteres {get;set;}
+    public decimal InteresAcreditado {get;set;}
     public decimal SaldoCapital {get;set;}
     public string Estado {get;set;}="Pendiente";
 }
@@ -58,6 +59,7 @@ public sealed class Pago:Entity {
     public int? UsuarioId {get;set;}
 }
 public sealed class Ingreso:Entity {
+    public string? Comprobante{get;set;}
     public DateOnly Fecha {get;set;}
     public string Concepto {get;set;}="";
     public string Categoria {get;set;}="OTRO";
@@ -66,7 +68,7 @@ public sealed class Ingreso:Entity {
     public string Origen {get;set;}="MANUAL";
     public int? PagoId {get;set;}
     public int? CuentaVentaId {get;set;}
-    public int CuentaBancariaId {get;set;}
+    public int? CuentaBancariaId {get;set;}
     public int UserId {get;set;}
     public string? Observaciones {get;set;}
     public string Estado {get;set;}="CONFIRMADO";
@@ -82,12 +84,18 @@ public sealed class Egreso:Entity {
     public int? AsesorId {get;set;}
     public int? CuentaBancariaId {get;set;}
     public int UserId {get;set;}
+    public string? Comprobante{get;set;}
     public string? Beneficiario {get;set;}
     public string? Observaciones {get;set;}
     public string Estado {get;set;}="PENDIENTE";
 }
 public sealed class MetodoPago:Entity { public string Nombre {get;set;}="";public bool Estado {get;set;}=true; }
 public sealed class CuentaBancaria:Entity {
+    public string Tipo{get;set;}="BANCARIA";
+    public string? Descripcion{get;set;}
+    public string? Iban{get;set;}
+    public string? Proveedor{get;set;}
+    public string? CodigoIntegracion{get;set;}
     public string Nombre {get;set;}="";
     public string Banco {get;set;}="";
     public string NumeroCuenta {get;set;}="";

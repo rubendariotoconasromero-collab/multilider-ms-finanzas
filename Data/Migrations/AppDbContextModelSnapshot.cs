@@ -22,6 +22,31 @@ namespace MSMultilider.Finanzas.Data.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("MSMultilider.Finanzas.Models.ClosureRejection", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ParentOperationId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("PropertyId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<DateTime>("RejectedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("ClosureRejection");
+                });
+
             modelBuilder.Entity("MSMultilider.Finanzas.Models.CuentaBancaria", b =>
                 {
                     b.Property<int>("Id")
@@ -35,11 +60,23 @@ namespace MSMultilider.Finanzas.Data.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("nvarchar(1000)");
 
+                    b.Property<string>("CodigoIntegracion")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<string>("Descripcion")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
                     b.Property<bool>("Estado")
                         .HasColumnType("bit");
+
+                    b.Property<string>("Iban")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
 
                     b.Property<string>("Moneda")
                         .IsRequired()
@@ -56,9 +93,18 @@ namespace MSMultilider.Finanzas.Data.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("nvarchar(1000)");
 
+                    b.Property<string>("Proveedor")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
                     b.Property<decimal>("SaldoInicial")
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("Tipo")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
 
                     b.Property<string>("Titular")
                         .IsRequired()
@@ -158,6 +204,10 @@ namespace MSMultilider.Finanzas.Data.Migrations
                     b.Property<DateOnly>("FechaVencimiento")
                         .HasColumnType("date");
 
+                    b.Property<decimal>("InteresAcreditado")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
                     b.Property<decimal>("MontoCapital")
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
@@ -218,6 +268,10 @@ namespace MSMultilider.Finanzas.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Comprobante")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
 
                     b.Property<string>("Concepto")
                         .IsRequired()
@@ -280,6 +334,113 @@ namespace MSMultilider.Finanzas.Data.Migrations
                     b.ToTable("Egresos");
                 });
 
+            modelBuilder.Entity("MSMultilider.Finanzas.Models.FinancialCommand", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("ActorId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Hash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<Guid>("OperationId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Result")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OperationId");
+
+                    b.ToTable("FinancialCommand");
+                });
+
+            modelBuilder.Entity("MSMultilider.Finanzas.Models.FinancialOperation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ActorIssuer")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("ActorSubject")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("AdviserEmail")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("AdviserName")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<Guid?>("ClosedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("CustomerCi")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("CustomerName")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<int>("PropiedadId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ReadSnapshot")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Snapshot")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("SnapshotHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("VentaId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("VentaId")
+                        .IsUnique()
+                        .HasFilter("[VentaId]>0");
+
+                    b.HasIndex("CustomerCi", "State");
+
+                    b.ToTable("FinancialOperation");
+                });
+
             modelBuilder.Entity("MSMultilider.Finanzas.Models.Ingreso", b =>
                 {
                     b.Property<int>("Id")
@@ -293,6 +454,10 @@ namespace MSMultilider.Finanzas.Data.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("nvarchar(1000)");
 
+                    b.Property<string>("Comprobante")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
                     b.Property<string>("Concepto")
                         .IsRequired()
                         .HasMaxLength(1000)
@@ -301,7 +466,7 @@ namespace MSMultilider.Finanzas.Data.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<int>("CuentaBancariaId")
+                    b.Property<int?>("CuentaBancariaId")
                         .HasColumnType("int");
 
                     b.Property<int?>("CuentaVentaId")
@@ -357,6 +522,40 @@ namespace MSMultilider.Finanzas.Data.Migrations
                         .HasFilter("[PagoId] IS NOT NULL");
 
                     b.ToTable("Ingresos");
+                });
+
+            modelBuilder.Entity("MSMultilider.Finanzas.Models.MethodAccountDefault", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("CuentaBancariaId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("MetodoPagoId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CuentaBancariaId");
+
+                    b.HasIndex("MetodoPagoId")
+                        .IsUnique();
+
+                    b.ToTable("MethodAccountDefault");
                 });
 
             modelBuilder.Entity("MSMultilider.Finanzas.Models.MetodoPago", b =>
@@ -462,6 +661,115 @@ namespace MSMultilider.Finanzas.Data.Migrations
                         .HasFilter("[SolicitudId] IS NOT NULL");
 
                     b.ToTable("Pagos");
+                });
+
+            modelBuilder.Entity("MSMultilider.Finanzas.Models.PaymentTestInbox", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ProviderId")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("Reference")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("PaymentTestInbox");
+                });
+
+            modelBuilder.Entity("MSMultilider.Finanzas.Models.PaymentTestObligation", b =>
+                {
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("VentaId")
+                        .HasColumnType("int");
+
+                    b.HasKey("OrderId", "VentaId");
+
+                    b.HasIndex("VentaId");
+
+                    b.ToTable("PaymentTestObligation");
+                });
+
+            modelBuilder.Entity("MSMultilider.Finanzas.Models.PaymentTestOrder", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int>("ClienteId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("Hash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("PaymentUrl")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("ProviderId")
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<string>("QrUrl")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("Reference")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
+
+                    b.Property<string>("Selection")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProviderId")
+                        .IsUnique()
+                        .HasFilter("[ProviderId] IS NOT NULL");
+
+                    b.HasIndex("Reference")
+                        .IsUnique();
+
+                    b.ToTable("PaymentTestOrder");
                 });
 
             modelBuilder.Entity("MSMultilider.Finanzas.Models.PlanPago", b =>
@@ -637,8 +945,7 @@ namespace MSMultilider.Finanzas.Data.Migrations
                     b.HasOne("MSMultilider.Finanzas.Models.CuentaBancaria", null)
                         .WithMany()
                         .HasForeignKey("CuentaBancariaId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("MSMultilider.Finanzas.Models.CuentaVenta", null)
                         .WithMany()
@@ -649,6 +956,21 @@ namespace MSMultilider.Finanzas.Data.Migrations
                         .WithMany()
                         .HasForeignKey("PagoId")
                         .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("MSMultilider.Finanzas.Models.MethodAccountDefault", b =>
+                {
+                    b.HasOne("MSMultilider.Finanzas.Models.CuentaBancaria", null)
+                        .WithMany()
+                        .HasForeignKey("CuentaBancariaId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("MSMultilider.Finanzas.Models.MetodoPago", null)
+                        .WithMany()
+                        .HasForeignKey("MetodoPagoId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("MSMultilider.Finanzas.Models.Pago", b =>
@@ -673,6 +995,15 @@ namespace MSMultilider.Finanzas.Data.Migrations
                         .WithMany()
                         .HasForeignKey("MetodoPagoId")
                         .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("MSMultilider.Finanzas.Models.PaymentTestObligation", b =>
+                {
+                    b.HasOne("MSMultilider.Finanzas.Models.PaymentTestOrder", null)
+                        .WithMany()
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("MSMultilider.Finanzas.Models.PlanPago", b =>

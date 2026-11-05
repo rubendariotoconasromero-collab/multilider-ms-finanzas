@@ -19,13 +19,20 @@ public sealed class IngresosController(AppDbContext db,FinanzasService service):
     [HttpPost] public async Task<IActionResult> Create(MovimientoRequest r,CancellationToken ct)=>Ok(await service.CrearIngreso(r,Api.UserId(User),ct));
     [HttpPut("{id:int}")] public async Task<IActionResult> Update(int id,MovimientoRequest r,CancellationToken ct) {
         var row=await Api.Find(db.Ingresos,id,ct);
-        Api.Require(row.Origen=="MANUAL" && row.Estado=="CONFIRMADO","Solo se editan ingresos manuales confirmados.",409);
+        Api.Require(row.Estado=="CONFIRMADO","Ingreso no confirmado.",409);
+        if(row.Origen!="MANUAL") {
+            Api.Require(row.Fecha==r.Fecha&&row.Concepto==r.Concepto&&row.Categoria==r.Categoria&&row.Monto==r.Monto&&row.Moneda==r.Moneda,"Los automáticos conservan sus importes y origen.",409);
+            if(r.CuentaBancariaId is int target){var bank=await Api.Find(db.CuentasBancarias,target,ct);Api.Require(bank.Estado&&bank.Moneda==row.Moneda,"Cuenta inválida.");}
+            row.CuentaBancariaId=r.CuentaBancariaId;row.Observaciones=r.Observaciones;
+            if(row.PagoId is int payment){var paid=await Api.Find(db.Pagos,payment,ct);paid.CuentaId=r.CuentaBancariaId;paid.Observaciones=r.Observaciones;}
+            await db.SaveChangesAsync(ct);return Ok(row);
+        }
         Api.Currency(r.Moneda);
-        var banco=await Api.Find(db.CuentasBancarias,r.CuentaBancariaId,ct);
-        Api.Require(banco.Estado && banco.Moneda==r.Moneda && r.Fecha!=default && r.Monto==Api.Money(r.Monto),"Cuenta, fecha o importe inválido.");
+        if(r.CuentaBancariaId is int bankId){var banco=await Api.Find(db.CuentasBancarias,bankId,ct);Api.Require(banco.Estado&&banco.Moneda==r.Moneda,"Cuenta inválida.");}
+        Api.Require(r.Fecha!=default&&r.Monto>0&&r.Monto==Api.Money(r.Monto),"Fecha o importe inválido.");
         Api.Require(r.Categoria is "VENTA_CONTADO" or "CUOTA_INICIAL" or "CUOTA" or "OTRO","Categoría inválida.");
         row.Fecha=r.Fecha;row.Concepto=r.Concepto;row.Categoria=r.Categoria;row.Monto=r.Monto;row.Moneda=r.Moneda;
-        row.CuentaBancariaId=r.CuentaBancariaId;row.Observaciones=r.Observaciones;
+        row.CuentaBancariaId=r.CuentaBancariaId;row.Observaciones=r.Observaciones;row.Comprobante=r.Comprobante;
         await db.SaveChangesAsync(ct);return Ok(row);
     }
     [HttpPut("{id:int}/anular")] public async Task<IActionResult> Cancel(int id,CancellationToken ct) {
@@ -50,17 +57,22 @@ public sealed class EgresosController(AppDbContext db,FinanzasService service):C
     [HttpPost] public async Task<IActionResult> Create(MovimientoRequest r,CancellationToken ct)=>Ok(await service.CrearEgreso(r,Api.UserId(User),ct));
     [HttpPut("{id:int}")] public async Task<IActionResult> Update(int id,MovimientoRequest r,CancellationToken ct) {
         var row=await Api.Find(db.Egresos,id,ct);
-        Api.Require(row.Origen=="MANUAL" && row.Estado=="PENDIENTE","Solo se editan egresos manuales pendientes.",409);
+        Api.Require(row.Estado=="PENDIENTE","Solo se editan egresos pendientes.",409);
+        if(row.Origen!="MANUAL") {
+            Api.Require(row.Fecha==r.Fecha&&row.Concepto==r.Concepto&&row.Categoria==r.Categoria&&row.Monto==r.Monto&&row.Moneda==r.Moneda,"Los automáticos conservan sus importes y origen.",409);
+            if(r.CuentaBancariaId is int target){var bank=await Api.Find(db.CuentasBancarias,target,ct);Api.Require(bank.Estado&&bank.Moneda==row.Moneda,"Cuenta inválida.");}
+            row.CuentaBancariaId=r.CuentaBancariaId;row.Observaciones=r.Observaciones;await db.SaveChangesAsync(ct);return Ok(row);
+        }
         Api.Currency(r.Moneda);
-        var banco=await Api.Find(db.CuentasBancarias,r.CuentaBancariaId,ct);
-        Api.Require(banco.Estado && banco.Moneda==r.Moneda && r.Fecha!=default && r.Monto==Api.Money(r.Monto),"Cuenta, fecha o importe inválido.");
+        if(r.CuentaBancariaId is int bankId){var banco=await Api.Find(db.CuentasBancarias,bankId,ct);Api.Require(banco.Estado&&banco.Moneda==r.Moneda,"Cuenta inválida.");}
+        Api.Require(r.Fecha!=default&&r.Monto>0&&r.Monto==Api.Money(r.Monto),"Fecha o importe inválido.");
         Api.Require(r.Categoria is "GASTO_ADMINISTRATIVO" or "GASTO_OPERATIVO" or "GASTO_MARKETING" or "PAGO_PROPIETARIO" or "OTRO","Categoría inválida.");
         row.Fecha=r.Fecha;row.Concepto=r.Concepto;row.Categoria=r.Categoria;row.Monto=r.Monto;row.Moneda=r.Moneda;
-        row.CuentaBancariaId=r.CuentaBancariaId;row.Observaciones=r.Observaciones;row.Beneficiario=r.Beneficiario;
+        row.CuentaBancariaId=r.CuentaBancariaId;row.Observaciones=r.Observaciones;row.Beneficiario=r.Beneficiario;row.Comprobante=r.Comprobante;
         await db.SaveChangesAsync(ct);return Ok(row);
     }
     [HttpPut("{id:int}/pagar")] public async Task<IActionResult> Pay(int id,[FromBody]DesembolsoRequest r,CancellationToken ct) {
-        await service.PagarEgreso(id,r.CuentaId,Api.UserId(User),ct);return Ok(new{message="Desembolso registrado."});
+        await service.PagarEgreso(id,r.CuentaId,Api.UserId(User),ct,r.Fecha,r.Observaciones,r.Comprobante);return Ok(new{message="Desembolso registrado."});
     }
     [HttpPut("{id:int}/anular")] public async Task<IActionResult> Cancel(int id,CancellationToken ct) {
         var row=await Api.Find(db.Egresos,id,ct);Api.Require(row.Estado=="PENDIENTE","Solo se anulan egresos pendientes.",409);
@@ -71,7 +83,7 @@ public sealed class EgresosController(AppDbContext db,FinanzasService service):C
         return Ok(rows.GroupBy(x=>new{x.Moneda,x.Estado}).Select(g=>new{moneda=g.Key.Moneda,estado=g.Key.Estado,total=g.Sum(x=>x.Monto)}));
     }
 }
-public sealed record DesembolsoRequest([System.ComponentModel.DataAnnotations.Range(1,int.MaxValue)]int CuentaId);
+public sealed record DesembolsoRequest([System.ComponentModel.DataAnnotations.Range(1,int.MaxValue)]int? CuentaId,DateOnly? Fecha=null,string? Observaciones=null,string? Comprobante=null);
 [ApiController,Route("api/comisiones-asesores"),Authorize(Policy="acceso_egresos")]
 public sealed class ComisionesController(AppDbContext db):ControllerBase {
     [HttpGet] public async Task<IActionResult> List(CancellationToken ct) {

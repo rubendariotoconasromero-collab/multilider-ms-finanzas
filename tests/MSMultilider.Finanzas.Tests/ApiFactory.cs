@@ -18,7 +18,9 @@ using MSMultilider.Finanzas.Services;
 
 namespace MSMultilider.Finanzas.Tests;
 public sealed class ApiFactory:WebApplicationFactory<Program> {
+    private sealed class FixtureLegacyGate:ILegacyFinancialGate{public void RequireLegacy(){}}
     public bool Development { get; init; }
+    public ILibelulaProvider? PaymentProvider {get;init;}
     private readonly SqliteConnection connection=new("Data Source=:memory:");
     public const string TestKey="only-for-automated-tests-not-a-real-secret-0123456789";
     private readonly string storage=Path.Combine(Path.GetTempPath(),"multilider-test-"+Guid.NewGuid().ToString("N"));
@@ -33,8 +35,11 @@ public sealed class ApiFactory:WebApplicationFactory<Program> {
         builder.ConfigureAppConfiguration((_,c)=>c.AddInMemoryCollection(new Dictionary<string,string?> {
             ["Jwt:Key"]=TestKey,["Jwt:Issuer"]="tests",["Jwt:Audience"]="tests",["Storage:Path"]=storage,
             ["Logging:LogLevel:Default"]="Error",["Logging:LogLevel:Microsoft"]="Error",["Logging:LogLevel:Microsoft.AspNetCore"]="Error"
+            ,["Libelula:CallbackBaseUrl"]="https://fixture.example.test",["Libelula:FrontendUrl"]="https://fixture.example.test",["PaymentTests:Enabled"]="true"
         }));
         builder.ConfigureServices(services=>{
+            services.RemoveAll<ILegacyFinancialGate>();services.AddSingleton<ILegacyFinancialGate,FixtureLegacyGate>();
+            if(PaymentProvider is not null){services.RemoveAll<ILibelulaProvider>();services.AddSingleton(PaymentProvider);}
             connection.Open();
             services.AddHttpClient("identity-status").ConfigurePrimaryHttpMessageHandler(()=>new IdentityHandler(this));
             services.RemoveAll<DbContextOptions<AppDbContext>>();

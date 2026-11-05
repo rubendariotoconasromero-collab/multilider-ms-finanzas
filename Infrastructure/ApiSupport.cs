@@ -21,13 +21,14 @@ public sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger) : I
     {
         var status = error switch {
             BusinessException b => b.Status,
+            Multilider.Operations.ProtocolException p => p.Status,
             DbUpdateConcurrencyException => 409,
             DbUpdateException => 409,
             HttpRequestException or TaskCanceledException => 503,
             _ => 500
         };
-        if (status == 500) logger.LogError(error, "Operación no completada.");
-        var detail = error is BusinessException ? error.Message : status switch {
+        if (status == 500) logger.LogError("Operación no completada: {FailureType}", error.GetType().Name);
+        var detail = error is BusinessException or Multilider.Operations.ProtocolException ? error.Message : status switch {
             409 => "Los datos cambiaron o existe un registro duplicado. Actualiza y vuelve a intentar.",
             503 => "El servicio relacionado no está disponible. No se confirmó la operación.",
             _ => "No se pudo completar la operación."

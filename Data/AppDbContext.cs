@@ -14,6 +14,23 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options):Service
     public DbSet<MetodoPago> MetodosPago=>Set<MetodoPago>();
     public DbSet<CuentaBancaria> CuentasBancarias=>Set<CuentaBancaria>();
     protected override void OnModelCreating(ModelBuilder m) {
+        m.Entity<ClosureRejection>().HasKey(x=>x.Id);
+        m.Entity<PaymentTestObligation>().HasKey(x=>new{x.OrderId,x.VentaId});
+        m.Entity<PaymentTestObligation>().HasIndex(x=>x.VentaId);
+        m.Entity<PaymentTestObligation>().HasOne<PaymentTestOrder>().WithMany().HasForeignKey(x=>x.OrderId).OnDelete(DeleteBehavior.Restrict);
+        m.Entity<FinancialOperation>().Property(x=>x.State).HasMaxLength(32);
+        m.Entity<FinancialOperation>().Property(x=>x.CustomerCi).HasMaxLength(50);
+        m.Entity<FinancialOperation>().HasIndex(x=>new{x.CustomerCi,x.State});
+        m.Entity<FinancialOperation>().HasKey(x=>x.Id);
+        m.Entity<MethodAccountDefault>().HasIndex(x=>x.MetodoPagoId).IsUnique();
+        m.Entity<MethodAccountDefault>().HasOne<MetodoPago>().WithMany().HasForeignKey(x=>x.MetodoPagoId);
+        m.Entity<MethodAccountDefault>().HasOne<CuentaBancaria>().WithMany().HasForeignKey(x=>x.CuentaBancariaId);
+        m.Entity<FinancialCommand>().HasKey(x=>x.Id);
+        m.Entity<PaymentTestOrder>().HasKey(x=>x.Id);
+        m.Entity<PaymentTestOrder>().HasIndex(x=>x.Reference).IsUnique();
+        m.Entity<PaymentTestOrder>().HasIndex(x=>x.ProviderId).IsUnique().HasFilter("[ProviderId] IS NOT NULL");
+        m.Entity<PaymentTestInbox>().HasKey(x=>x.Id);
+        m.Entity<FinancialCommand>().HasIndex(x=>x.OperationId);
         m.Entity<CuentaVenta>().HasIndex(x=>x.NotaVentaId).IsUnique();
         m.Entity<VentaAnulada>().HasIndex(x=>x.NotaVentaId).IsUnique();
         m.Entity<PlanPago>().HasIndex(x=>x.CuentaVentaId).IsUnique();
@@ -36,6 +53,17 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options):Service
         m.Entity<Egreso>().HasIndex(x=>new{x.CuentaVentaId,x.Categoria}).IsUnique()
             .HasFilter("[CuentaVentaId] IS NOT NULL AND [Categoria] = 'COMISION_ASESOR'");
         base.OnModelCreating(m);
+        m.Entity<PaymentTestOrder>().Property(x=>x.Selection).HasColumnType(Database.IsSqlServer()?"nvarchar(max)":"TEXT").Metadata.SetMaxLength(null);
+        m.Entity<PaymentTestOrder>().Property(x=>x.Reference).HasMaxLength(80);
+        m.Entity<PaymentTestOrder>().Property(x=>x.ProviderId).HasMaxLength(255);
+        m.Entity<PaymentTestOrder>().Property(x=>x.Hash).HasMaxLength(64);
+        m.Entity<PaymentTestInbox>().Property(x=>x.Id).HasMaxLength(64);
+        m.Entity<FinancialCommand>().Property(x=>x.Result).HasColumnType(Database.IsSqlServer()?"nvarchar(max)":"TEXT").Metadata.SetMaxLength(null);
+        m.Entity<FinancialCommand>().Property(x=>x.Hash).HasMaxLength(64);
+        m.Entity<FinancialOperation>().Property(x=>x.Snapshot).HasColumnType(Database.IsSqlServer()?"nvarchar(max)":"TEXT").Metadata.SetMaxLength(null);
+        m.Entity<FinancialOperation>().Property(x=>x.ReadSnapshot).HasColumnType(Database.IsSqlServer()?"nvarchar(max)":"TEXT").Metadata.SetMaxLength(null);
+        m.Entity<FinancialOperation>().Property(x=>x.SnapshotHash).HasMaxLength(64);
+        m.Entity<FinancialOperation>().HasIndex(x=>x.VentaId).IsUnique().HasFilter("[VentaId]>0");
         m.Entity<Egreso>().Property(x=>x.Categoria).HasMaxLength(100);
     }
 }
