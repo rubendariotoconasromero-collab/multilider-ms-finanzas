@@ -114,6 +114,49 @@ public sealed class PhaseFiveTests {
         Assert.Empty(await db.Ingresos.ToListAsync());
         Assert.Equal(1, provider.Registrations);
     }
+
+    [Fact]
+    public async Task ManualLedgerEditReplaysOnceAndAutomaticAmountsCannotBeChanged()
+    {
+        using var factory = new ApiFactory();
+        using var client = factory.Client(ApiFactory.AllPermissions);
+        int automaticIncome;
+        int automaticExpense;
+        using (var setup = factory.Services.CreateScope()) {
+            var db = setup.ServiceProvider.GetRequiredService<AppDbContext>();
+            await Prepare(db);
+            automaticExpense = (await db.Egresos.SingleAsync()).Id;
+            var income = new Ingreso { Origen = "AUTOMATICO", Monto = 100, Moneda = "BOB",
+                Fecha = new(2026, 11, 4), Concepto = "Cuota fixture", Categoria = "CUOTA" };
+            db.Ingresos.Add(income);
+            await db.SaveChangesAsync();
+            automaticIncome = income.Id;
+        }
+
+        foreach (var (route, automatic) in new[] { ("ingresos", automaticIncome), ("egresos", automaticExpense) }) {
+            var original = new { fecha = "2026-11-04", concepto = "Movimiento manual fixture", categoria = "OTRO", monto = 25m, moneda = "BOB" };
+            var created = await (await client.PostAsJsonAsync("/api/" + route, original)).Json();
+            var id = created.GetProperty("id").GetInt32();
+            var uri = $"/api/{route}/{id}";
+            var edit = new { original.fecha, original.concepto, original.categoria, monto = 26.50m, original.moneda, solicitud_id = Guid.NewGuid() };
+            await (await client.PutAsJsonAsync(uri, edit)).Json();
+            using var replay = await client.PutAsJsonAsync(uri, edit);
+            Assert.True(replay.IsSuccessStatusCode);
+            Assert.Equal("true", Assert.Single(replay.Headers.GetValues("Idempotency-Replayed")));
+            var changed = await client.PutAsJsonAsync(uri, edit with { monto = 999m });
+            Assert.Equal(System.Net.HttpStatusCode.Conflict, changed.StatusCode);
+            var saved = await (await client.GetAsync(uri)).Json();
+            Assert.Equal(26.50m, saved.GetProperty("monto").GetDecimal());
+            var protectedAmount = await client.PutAsJsonAsync($"/api/{route}/{automatic}", edit with { solicitud_id = Guid.NewGuid() });
+            Assert.Equal(System.Net.HttpStatusCode.Conflict, protectedAmount.StatusCode);
+        }
+        using var verification = factory.Services.CreateScope();
+        var final = verification.ServiceProvider.GetRequiredService<AppDbContext>();
+        Assert.Equal(2, await final.Ingresos.CountAsync());
+        Assert.Equal(2, await final.Egresos.CountAsync());
+        Assert.Equal(100m, (await final.Ingresos.FindAsync(automaticIncome))!.Monto);
+        Assert.Equal(50m, (await final.Egresos.FindAsync(automaticExpense))!.Monto);
+    }
     [Fact] public async Task PartialInstallmentReplayAndBatchKeepOneIncomePerReceipt() {
         using var factory=new ApiFactory();using var client=factory.Client(ApiFactory.AllPermissions);
         using(var scope=factory.Services.CreateScope()) {
