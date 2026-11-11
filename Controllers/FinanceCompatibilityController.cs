@@ -39,6 +39,7 @@ public sealed class FinanceCompatibilityController(AppDbContext db,FinanceReads 
             var query=db.Pagos.AsQueryable();
             var state=path.EndsWith("listar")?"PENDIENTE_PAGO":Request.Query["estado"].ToString();
             if(!string.IsNullOrEmpty(state))query=query.Where(x=>x.Estado==state);
+            if(state=="PENDIENTE_PAGO")query=query.Where(x=>db.CuentasVentas.Any(c=>c.Id==x.CuentaVentaId&&c.Estado=="Activa"));
             if(int.TryParse(Request.Query["nota_venta_id"],out var venta))query=query.Where(x=>db.CuentasVentas.Any(c=>c.Id==x.CuentaVentaId&&c.NotaVentaId==venta));
             var page=int.TryParse(Request.Query["page"],out var p)?p:1;var per=int.TryParse(Request.Query["per_page"],out var n)?n:20;
             var rows=await Api.Paginate(query,page,per,ct);var data=new List<JsonObject>();foreach(var row in rows.Data)data.Add(await reads.Payment(row,ct));

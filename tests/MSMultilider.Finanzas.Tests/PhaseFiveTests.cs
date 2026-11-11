@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Multilider.Operations;
 using MSMultilider.Finanzas.Data;
@@ -35,6 +36,46 @@ public sealed class PhaseFiveTests {
         }
     }
     private static TestPaymentRequest Request(Guid id,int payment)=>new(id,10,[payment],[],"F5-CI","70000000","Cliente","F5","fixture@example.test");
+
+    [Fact]
+    public async Task ProviderProofRequiresTheConfiguredMerchantAndExactCurrencyAndAmount()
+    {
+        const string reference = "TEMP-0a968553-3bc9-4be3-9ac0-68043115620a";
+        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> {
+            ["Libelula:BaseUrl"] = "https://payments.example.test",
+            ["Libelula:ApiKey"] = "fixture-merchant-a"
+        }).Build();
+        var responses = new Queue<object>([
+            Array.Empty<object>(),
+            new[] { new { identificador = reference, pagado = true, moneda = "USD", valor_total = "0.20" } },
+            new[] { new { identificador = reference, pagado = true, moneda = "BOB", valor_total = "0.204" } },
+            new[] { new { identificador = reference, pagado = true, moneda = "BOB", valor_total = "0.20" } },
+        ]);
+        using var http = new HttpClient(new MerchantFixture(async request => {
+            Assert.Equal("https://payments.example.test/rest/deuda/consultar_deudas/por_fechas", request.RequestUri!.AbsoluteUri);
+            var body = await request.Content!.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal("fixture-merchant-a", body.GetProperty("appkey").GetString());
+            return new HttpResponseMessage(System.Net.HttpStatusCode.OK) {
+                Content = JsonContent.Create(new { error = 0, datos = responses.Dequeue() })
+            };
+        }));
+        var provider = new LibelulaProvider(config, new MerchantFactory(http));
+        var date = new DateTime(2026, 11, 4, 15, 0, 0, DateTimeKind.Utc);
+        for (var attempt = 0; attempt < 3; attempt++)
+            Assert.False(await provider.Verify(reference, "BOB", .20m, date, default));
+        Assert.True(await provider.Verify(reference, "BOB", .20m, date, default));
+        Assert.Empty(responses);
+    }
+
+    private sealed class MerchantFixture(Func<HttpRequestMessage, Task<HttpResponseMessage>> respond) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) => respond(request);
+    }
+
+    private sealed class MerchantFactory(HttpClient client) : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) => client;
+    }
     [Fact] public async Task PreparationIsDurableIdempotentAndCannotResurrectAfterAbort() {
         using var factory=new ApiFactory();using var client=factory.Client();using var scope=factory.Services.CreateScope();var db=scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var service=new FinancialOperations(db);var grant=Grant(Guid.NewGuid());var payload=new PrepareFinance(Guid.NewGuid(),Sale());

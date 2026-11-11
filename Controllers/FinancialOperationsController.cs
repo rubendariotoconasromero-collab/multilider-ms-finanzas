@@ -45,4 +45,17 @@ public sealed class FinancialOperationsController(AppDbContext db,FinancialOpera
         Api.Require(op.State=="Cerrada"&&op.ClosedBy==id,"No hay cierre financiero terminal.",409);
         return Ok(new{operacion_id=id,venta_operacion_id=op.Id,propiedad_id=op.PropiedadId,venta_id=op.VentaId,estado="Cerrada"});
     }
+    [HttpGet("{id:guid}/recibo-cierre")]
+    public async Task<IActionResult> CloseReceipt(Guid id,CancellationToken ct) {
+        var grant=await channel.Authorize(HttpContext,id,"read",config);
+        Api.Require(grant.Kind=="anulacion" && grant.ParentOperationId.HasValue,"Cierre incompatible.",409);
+        if(await db.Set<ClosureRejection>().FindAsync([id],ct) is {} denied) {
+            Api.Require(denied.ParentOperationId==grant.ParentOperationId && denied.PropertyId==grant.ResourceId,"Cierre incompatible.",409);
+            throw new BusinessException(denied.Reason,409);
+        }
+        var op=await db.Set<FinancialOperation>().FindAsync([grant.ParentOperationId!.Value],ct);
+        if(op is null || op.ClosedBy!=id)throw new BusinessException("Cierre no encontrado.",404);
+        Api.Require(op.State=="Cerrada" && op.PropiedadId==grant.ResourceId,"Cierre incompatible.",409);
+        return Ok(op);
+    }
 }
