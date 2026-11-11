@@ -51,6 +51,55 @@ public sealed class FinanceReads(AppDbContext db,FinanzasService service) {
         }
         node["cuotas"]=data;return node;
     }
+    public async Task<object[]> Accounts(IReadOnlyList<CuentaVenta> accounts, bool includePayments, CancellationToken ct)
+    {
+        var accountIds = accounts.Select(x => x.Id).ToArray();
+        var saleIds = accounts.Select(x => x.NotaVentaId).ToArray();
+        var operations = await db.Set<FinancialOperation>().AsNoTracking()
+            .Where(x => saleIds.Contains(x.VentaId) && x.State == "Activa").ToDictionaryAsync(x => x.VentaId, ct);
+        var plans = await db.PlanesPago.AsNoTracking().Where(x => accountIds.Contains(x.CuentaVentaId))
+            .ToDictionaryAsync(x => x.CuentaVentaId, ct);
+        var planIds = plans.Values.Select(x => x.Id).ToArray();
+        var quotaRows = await db.Cuotas.AsNoTracking().Where(x => planIds.Contains(x.PlanPagoId))
+            .OrderBy(x => x.NumeroCuota).ThenBy(x => x.Id).ToListAsync(ct);
+        var quotas = quotaRows.ToLookup(x => x.PlanPagoId);
+        var payments = await db.Pagos.AsNoTracking().Where(x => accountIds.Contains(x.CuentaVentaId) && x.Estado == "PAGADO")
+            .OrderBy(x => x.FechaPago).ThenBy(x => x.Id).ToListAsync(ct);
+        var byAccount = payments.ToLookup(x => x.CuentaVentaId);
+        return accounts.Select(account =>
+        {
+            operations.TryGetValue(account.NotaVentaId, out var operation);
+            var document = string.IsNullOrEmpty(operation?.ReadSnapshot) ? null : JsonNode.Parse(operation.ReadSnapshot)!.AsObject();
+            var snapshot = string.IsNullOrEmpty(operation?.Snapshot) ? null : JsonNode.Parse(operation.Snapshot);
+            var property = document?["propiedad"]?.AsObject();
+            property?.Remove("propietarios");
+            var rows = byAccount[account.Id];
+            JsonObject? planNode = null;
+            var remaining = 0m;
+            if (plans.TryGetValue(account.Id, out var plan))
+            {
+                var schedule = quotas[plan.Id].ToArray();
+                var paid = rows.Where(x => x.ConceptoPago == "CUOTA" && x.CuotaId.HasValue)
+                    .GroupBy(x => x.CuotaId!.Value).ToDictionary(x => x.Key, x => x.Sum(p => p.Monto));
+                var balances = schedule.ToDictionary(x => x.Id, x => InstallmentBalance.Calculate(x, paid.GetValueOrDefault(x.Id)));
+                remaining = schedule.Where(x => x.Estado is "Pendiente" or "Vencida").Sum(x => balances[x.Id].CapitalPendiente);
+                planNode = PlanNode(plan, account.NotaVentaId, schedule, balances);
+            }
+            return (object)new
+            {
+                id = account.NotaVentaId, account.ClienteId, account.AsesorId, account.TipoVenta, account.Moneda,
+                account.MontoLiquido, account.CuotaInicial,
+                monto_total = property?["precio_venta"]?.GetValue<decimal>() ?? account.MontoLiquido,
+                fecha = snapshot?["fecha"]?.GetValue<string>(),
+                saldo_credito = remaining, estado = "Completada", propiedad = property,
+                cliente = new { id = account.ClienteId, nombre_completo = operation?.CustomerName },
+                asesor = new { id = account.AsesorId, nombre_completo = operation?.AdviserName },
+                plan_pago = planNode,
+                pagos = includePayments ? rows.Select(x => new { x.Id, x.CuotaId, x.ConceptoPago, x.FechaPago, x.Monto, x.Estado }) : null
+            };
+        }).ToArray();
+    }
+
     public async Task<object> Plan(int venta,CancellationToken ct) {
         var account=await service.Cuenta(venta,ct);var plan=await db.PlanesPago.SingleOrDefaultAsync(x=>x.CuentaVentaId==account.Id,ct)??throw new BusinessException("Venta sin plan.",404);
         var cuotas=await db.Cuotas.Where(x=>x.PlanPagoId==plan.Id).OrderBy(x=>x.NumeroCuota).ThenBy(x=>x.Id).ToListAsync(ct);
