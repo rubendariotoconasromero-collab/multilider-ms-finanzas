@@ -9,6 +9,7 @@ var config=new Microsoft.Data.SqlClient.SqlConnectionStringBuilder(connection);c
 if(config.DataSource!="localhost"||!config.InitialCatalog.StartsWith(prefix,StringComparison.Ordinal)||!Guid.TryParseExact(config.InitialCatalog[prefix.Length..],"N",out _))throw new InvalidOperationException("Unsafe test database.");
 await using var db=new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseSqlServer(connection).Options);
 if(args.Contains("drop")){await db.Database.EnsureDeletedAsync();Console.WriteLine("Temporary Finanzas database removed.");return;}
+if(args.Contains("schema-only")){await db.Database.MigrateAsync();Console.WriteLine("Isolated finance schema prepared.");return;}
 if(args.Contains("upgrade-f4")) {
     await db.GetService<IMigrator>().MigrateAsync("20261104160311_InitialCreate");
     await db.Database.ExecuteSqlRawAsync("""
