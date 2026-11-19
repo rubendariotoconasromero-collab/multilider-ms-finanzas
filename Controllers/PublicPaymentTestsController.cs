@@ -23,10 +23,14 @@ public sealed class PublicPaymentTestsController(AppDbContext db,PaymentTests te
     }
     [HttpPost("pagos/confirmar-retorno")]
     public Task<IActionResult> Return(JsonElement body,CancellationToken ct)=>Status(body.GetProperty("id_transaccion").GetString()!,ct);
-    [HttpPost("pagos/callback")]
+    [HttpGet("pagos/callback"), HttpPost("pagos/callback")]
     public async Task<IActionResult> Callback(CancellationToken ct) {
         var form=Request.HasFormContentType?await Request.ReadFormAsync(ct):null;
-        var body=form is null?await JsonSerializer.DeserializeAsync<JsonElement>(Request.Body,cancellationToken:ct):JsonSerializer.SerializeToElement(form.ToDictionary(x=>x.Key,x=>x.Value.ToString()));
+        var body=form is not null?JsonSerializer.SerializeToElement(form.ToDictionary(x=>x.Key,x=>x.Value.ToString())):
+            !HttpMethods.IsGet(Request.Method)&&Request.ContentType?.Contains("application/json",StringComparison.OrdinalIgnoreCase)==true
+                ?await JsonSerializer.DeserializeAsync<JsonElement>(Request.Body,cancellationToken:ct)
+                :JsonSerializer.SerializeToElement(Request.Query.ToDictionary(x=>x.Key,x=>x.Value.ToString()));
+        Api.Require(body.ValueKind==JsonValueKind.Object,"Evento inválido.");
         var reference=Request.Query["identificador"].FirstOrDefault()??(body.TryGetProperty("identificador",out var r)?r.GetString():null);
         var provider=body.TryGetProperty("transaction_id",out var p)?p.GetString():null;
         Api.Require((reference?.Length??0)<=255&&(provider?.Length??0)<=255,"Evento inválido.");
