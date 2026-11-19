@@ -1,4 +1,6 @@
+using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -22,12 +24,18 @@ public sealed class PhaseFiveTests {
     private sealed class Provider:ILibelulaProvider {
         public int Registrations;public bool Paid;public bool LoseResponse;public Func<Task>? BeforeReturn;
         public int VerificationTimeouts;
+        public int Verifications;
+        public decimal ExpectedAmount = .20m;
+        public JsonElement Registration;
         public async Task<JsonElement> Register(object data,CancellationToken ct) {
-            Registrations++;if(BeforeReturn is not null)await BeforeReturn();if(LoseResponse)throw new HttpRequestException("Fixture lost acknowledgement");
+            Registrations++;
+            Registration = JsonSerializer.SerializeToElement(data);
+            if(BeforeReturn is not null)await BeforeReturn();if(LoseResponse)throw new HttpRequestException("Fixture lost acknowledgement");
             return JsonSerializer.SerializeToElement(new{url_pasarela_pagos="https://fixture.example.test/pay",id_transaccion="provider-fixture"});
         }
         public Task<bool> Verify(string reference,string currency,decimal amount,DateTime created,CancellationToken ct) {
-            Assert.Equal("BOB",currency);Assert.Equal(.20m,amount);
+            Verifications++;
+            Assert.Equal("BOB",currency);Assert.Equal(ExpectedAmount,amount);
             if (VerificationTimeouts > 0) {
                 VerificationTimeouts--;
                 throw new TaskCanceledException("Fixture provider read timed out.", new TimeoutException());
@@ -112,6 +120,95 @@ public sealed class PhaseFiveTests {
         provider.BeforeReturn=async()=>{using var other=factory.Services.CreateScope();await other.ServiceProvider.GetRequiredService<PaymentTests>().Reconcile(null,default);};
         var order=await scope.ServiceProvider.GetRequiredService<PaymentTests>().Create(Request(Guid.NewGuid(),(await db.Pagos.SingleAsync()).Id),default);
         Assert.Equal("PagadaPrueba",order.State);Assert.NotNull(order.PaymentUrl);Assert.Equal(0,await db.Ingresos.CountAsync());
+    }
+
+    [Theory]
+    [InlineData("GET", "", null)]
+    [InlineData("GET", "?identificador=%20%20&transaction_id=", null)]
+    [InlineData("GET", "?identificador=x&identificador=y", null)]
+    [InlineData("POST", "", "{}")]
+    [InlineData("POST", "", "{\"identificador\":null,\"transaction_id\":\" \"}")]
+    [InlineData("POST", "", "{\"transaction_id\":[\"no-es-texto\"]}")]
+    [InlineData("POST", "", "{\"identificador\":")]
+    public async Task CallbackRequiresAValidIdentifierBeforeRecordingAnEvent(string method, string query, string? body) {
+        var provider = new Provider();
+        using var factory = new ApiFactory { PaymentProvider = provider };
+        using var client = factory.Client();
+        using var request = new HttpRequestMessage(new HttpMethod(method), "/api/public/pagos/callback" + query);
+        if (body is not null) request.Content = new StringContent(body, Encoding.UTF8, "application/json");
+        using var response = await client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        Assert.Empty(await db.Set<PaymentTestInbox>().ToListAsync());
+        Assert.Empty(await db.Set<PaymentTestOrder>().ToListAsync());
+        Assert.Equal(0, provider.Registrations);
+        Assert.Equal(0, provider.Verifications);
+    }
+
+    [Theory]
+    [InlineData("GET")]
+    [InlineData("POST form")]
+    [InlineData("POST JSON")]
+    [InlineData("POST con transaction_id en consulta")]
+    public async Task ValidCallbackConfirmsOnlyFortyCentsForTwoConcepts(string method) {
+        var provider = new Provider { ExpectedAmount = .40m };
+        using var factory = new ApiFactory { PaymentProvider = provider };
+        using var client = factory.Client();
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await Prepare(db);
+        var payment = await db.Pagos.AsNoTracking().SingleAsync();
+        async Task<decimal[]> QuotaBalances() => await db.Cuotas.AsNoTracking().OrderBy(x => x.Id)
+            .Select(x => x.SaldoCapital).ToArrayAsync();
+        var balances = await QuotaBalances();
+        var quota = await db.Cuotas.AsNoTracking().OrderBy(x => x.Id).FirstAsync();
+        var operation = Guid.NewGuid();
+        var input = new { operacion_id = operation, cliente_id = 10, pago_ids = new[] { payment.Id }, cuota_ids = new[] { quota.Id },
+            ci_pagador = "F5-CI", telefono_pagador = "70000000", nombres_pagador = "Cliente", apellidos_pagador = "F5", correo_pagador = "fixture@example.test" };
+        var order = await (await client.PostAsJsonAsync("/api/public/pagos/procesar", input)).Json();
+        Assert.True(order.GetProperty("es_prueba").GetBoolean());
+        Assert.Equal(.40m, order.GetProperty("monto_prueba").GetDecimal());
+        var lines = provider.Registration.GetProperty("lineas_detalle_deuda").EnumerateArray().ToArray();
+        Assert.Equal(2, lines.Length);
+        Assert.All(lines, line => {
+            Assert.Equal(.20m, line.GetProperty("costo_unitario").GetDecimal());
+            Assert.Equal(1, line.GetProperty("cantidad").GetInt32());
+        });
+
+        var reference = order.GetProperty("id_transaccion").GetString()!;
+        await (await client.PostAsJsonAsync("/api/public/pagos/procesar", input)).Json();
+        var path = "/api/public/pagos/callback";
+        var query = "?identificador=" + Uri.EscapeDataString(reference);
+        Task<HttpResponseMessage> Notify() => method switch {
+            "GET" => client.GetAsync(path + query),
+            "POST form" => client.PostAsync(path, new FormUrlEncodedContent(new Dictionary<string, string> { ["identificador"] = reference })),
+            "POST JSON" => client.PostAsJsonAsync(path, new { identificador = reference }),
+            _ => client.PostAsJsonAsync(path + "?transaction_id=provider-fixture", new { }),
+        };
+        using (var pending = await Notify()) {
+            Assert.Equal(HttpStatusCode.OK, pending.StatusCode);
+            Assert.True(pending.Headers.CacheControl?.NoStore);
+        }
+        Assert.Equal("Registrada", (await db.Set<PaymentTestOrder>().AsNoTracking().SingleAsync()).State);
+        provider.Paid = true;
+        using (var response = await Notify()) Assert.True((await response.Json()).GetProperty("ok").GetBoolean());
+        var confirmed = await (await client.PostAsJsonAsync("/api/public/pagos/confirmar-retorno", new { id_transaccion = reference })).Json();
+        Assert.Equal("PAGADO_PRUEBA", confirmed.GetProperty("estado").GetString());
+        Assert.Equal(.40m, confirmed.GetProperty("monto_prueba").GetDecimal());
+        Assert.False(confirmed.GetProperty("deuda_real_liquidada").GetBoolean());
+        var notice = await db.Set<PaymentTestInbox>().AsNoTracking().SingleAsync();
+        if (method == "POST con transaction_id en consulta") Assert.Equal("provider-fixture", notice.ProviderId);
+        else Assert.Equal("Conciliada", notice.State);
+        Assert.Equal(1, provider.Registrations);
+        Assert.Equal(2, provider.Verifications);
+        var actualPayment = await db.Pagos.AsNoTracking().SingleAsync();
+        Assert.Equal("PENDIENTE_PAGO", actualPayment.Estado);
+        Assert.Equal(payment.Monto, actualPayment.Monto);
+        Assert.Equal(balances, await QuotaBalances());
+        Assert.All(await db.Cuotas.AsNoTracking().ToListAsync(), row => Assert.Equal("Pendiente", row.Estado));
+        Assert.Empty(await db.Ingresos.AsNoTracking().ToListAsync());
     }
 
     [Fact]

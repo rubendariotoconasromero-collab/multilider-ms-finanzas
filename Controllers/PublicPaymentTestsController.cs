@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Primitives;
 using Multilider.Operations;
 using MSMultilider.Finanzas.Data;
 using MSMultilider.Finanzas.Infrastructure;
@@ -25,16 +26,47 @@ public sealed class PublicPaymentTestsController(AppDbContext db,PaymentTests te
     public Task<IActionResult> Return(JsonElement body,CancellationToken ct)=>Status(body.GetProperty("id_transaccion").GetString()!,ct);
     [HttpGet("pagos/callback"), HttpPost("pagos/callback")]
     public async Task<IActionResult> Callback(CancellationToken ct) {
-        var form=Request.HasFormContentType?await Request.ReadFormAsync(ct):null;
-        var body=form is not null?JsonSerializer.SerializeToElement(form.ToDictionary(x=>x.Key,x=>x.Value.ToString())):
-            !HttpMethods.IsGet(Request.Method)&&Request.ContentType?.Contains("application/json",StringComparison.OrdinalIgnoreCase)==true
-                ?await JsonSerializer.DeserializeAsync<JsonElement>(Request.Body,cancellationToken:ct)
-                :JsonSerializer.SerializeToElement(Request.Query.ToDictionary(x=>x.Key,x=>x.Value.ToString()));
-        Api.Require(body.ValueKind==JsonValueKind.Object,"Evento inválido.");
-        var reference=Request.Query["identificador"].FirstOrDefault()??(body.TryGetProperty("identificador",out var r)?r.GetString():null);
-        var provider=body.TryGetProperty("transaction_id",out var p)?p.GetString():null;
-        Api.Require((reference?.Length??0)<=255&&(provider?.Length??0)<=255,"Evento inválido.");
-        var id=OperationProtocol.Hash(new{reference,provider,error=body.TryGetProperty("error",out var e)?e.ToString():"",cancel=body.TryGetProperty("cancel_order",out var c)?c.ToString():""});
+        IFormCollection? form = null;
+        JsonElement body = default;
+        if (HttpMethods.IsPost(Request.Method)) {
+            if (Request.HasFormContentType) {
+                form = await Request.ReadFormAsync(ct);
+            } else if (Request.HasJsonContentType() && Request.ContentLength != 0) {
+                try {
+                    body = await JsonSerializer.DeserializeAsync<JsonElement>(Request.Body, cancellationToken: ct);
+                } catch (JsonException) {
+                    throw new BusinessException("El cuerpo de la notificación no es JSON válido.");
+                }
+                Api.Require(body.ValueKind == JsonValueKind.Object, "El cuerpo de la notificación debe ser un objeto.");
+            }
+        }
+
+        string? Field(string name, bool queryFirst = false, bool identifier = false) {
+            static string? Single(StringValues values, string field) {
+                Api.Require(values.Count <= 1, $"El campo {field} debe tener un solo valor.");
+                return values.FirstOrDefault();
+            }
+            if (queryFirst && Request.Query.TryGetValue(name, out var queryValue)) return Single(queryValue, name);
+            if (form is not null && form.TryGetValue(name, out var formValue)) return Single(formValue, name);
+            if (body.ValueKind == JsonValueKind.Object && body.TryGetProperty(name, out var value)) {
+                if (value.ValueKind == JsonValueKind.Null) return null;
+                Api.Require(identifier ? value.ValueKind == JsonValueKind.String
+                    : value.ValueKind is JsonValueKind.String or JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False,
+                    $"El campo {name} no es válido.");
+                return value.ToString();
+            }
+            return Request.Query.TryGetValue(name, out var fallback) ? Single(fallback, name) : null;
+        }
+
+        var reference = Field("identificador", queryFirst: true, identifier: true)?.Trim();
+        var provider = Field("transaction_id", identifier: true)?.Trim();
+        reference = string.IsNullOrEmpty(reference) ? null : reference;
+        provider = string.IsNullOrEmpty(provider) ? null : provider;
+        Api.Require(reference is not null || provider is not null, "Indica identificador o transaction_id para la notificación.");
+        Api.Require((reference?.Length ?? 0) <= 255 && (provider?.Length ?? 0) <= 255, "El identificador supera los 255 caracteres.");
+        var error = Field("error") ?? "";
+        var cancel = Field("cancel_order") ?? "";
+        var id=OperationProtocol.Hash(new{reference,provider,error,cancel});
         await using(var tx=await db.Database.BeginTransactionAsync(ct)) {
             await OperationProtocol.Lock(db,"finance:operations",ct);
             if(!await db.Set<PaymentTestInbox>().AnyAsync(x=>x.Id==id,ct)){db.Add(new PaymentTestInbox{Id=id,Reference=reference,ProviderId=provider});await db.SaveChangesAsync(ct);}
@@ -42,6 +74,7 @@ public sealed class PublicPaymentTestsController(AppDbContext db,PaymentTests te
         }
         if(reference is null&&provider is not null)reference=await db.Set<PaymentTestOrder>().Where(x=>x.ProviderId==provider).Select(x=>x.Reference).SingleOrDefaultAsync(ct);
         if(reference is not null)await tests.Reconcile(reference,ct);
+        Response.Headers.CacheControl = "private, no-store";
         return Ok(new{ok=true,es_prueba=true});
     }
     [HttpPost("clientes/buscar")]
